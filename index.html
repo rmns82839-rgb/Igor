@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stravinsky | Master Edition</title>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Inter:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
+    <style>
+        :root {
+            --gold: #d4af37;
+            --gold-bright: #f1d592;
+            --blue-dark: rgba(5, 10, 29, 0.92);
+            --correct: #2ecc71;
+            --wrong: #e74c3c;
+        }
+
+        body {
+            margin: 0; 
+            background: #000 url('https://upload.wikimedia.org/wikipedia/commons/3/33/Igor_Stravinsky_LOC_32392u.jpg') center/cover no-repeat fixed;
+            color: white;
+            font-family: 'Inter', sans-serif; 
+            display: flex;
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            overflow: hidden;
+        }
+
+        /* FONDO NÍTIDO */
+        body::before {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.2); 
+            backdrop-filter: blur(1px); 
+            z-index: -1;
+        }
+
+        #game-container {
+            width: 95%; max-width: 700px;
+            background: var(--blue-dark);
+            border: 2px solid var(--gold); 
+            border-radius: 25px;
+            padding: 40px; 
+            text-align: center;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8);
+        }
+
+        .header-game { 
+            font-family: 'Playfair Display'; 
+            color: var(--gold); 
+            font-size: 2rem; 
+            letter-spacing: 3px;
+            margin-bottom: 20px;
+        }
+        
+        .status-info { 
+            display: flex; 
+            justify-content: space-between; 
+            color: var(--gold-bright); 
+            margin-bottom: 20px;
+            font-size: 0.9rem;
+            font-weight: bold;
+        }
+
+        .question-text { 
+            font-size: 1.5rem; 
+            min-height: 80px; 
+            margin-bottom: 25px;
+            font-family: 'Playfair Display', serif;
+        }
+
+        .options-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+
+        .option {
+            background: rgba(255, 255, 255, 0.05); 
+            border: 1px solid var(--gold);
+            padding: 18px; 
+            border-radius: 12px; 
+            cursor: pointer;
+            transition: 0.3s;
+            font-weight: 600;
+        }
+
+        .option:hover { background: var(--gold); color: black; }
+
+        .correct { background: var(--correct) !important; color: white !important; border-color: white !important; }
+        .wrong { background: var(--wrong) !important; color: white !important; border-color: white !important; }
+        .hidden-opt { visibility: hidden; opacity: 0; }
+
+        .lifelines { margin-top: 25px; display: flex; justify-content: center; gap: 15px; }
+        .lifeline-btn { 
+            background: transparent; border: 1px solid var(--gold); color: var(--gold);
+            padding: 10px 20px; border-radius: 20px; cursor: pointer; font-size: 0.8rem;
+        }
+        .lifeline-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+        /* Pantallas */
+        #quiz-ui, #final-screen { width: 100%; }
+        #final-screen { display: none; }
+
+        .btn-retry {
+            margin-top: 30px;
+            background: var(--gold);
+            color: black;
+            padding: 15px 40px;
+            border-radius: 50px;
+            font-weight: bold;
+            border: none;
+            cursor: pointer;
+            font-size: 1.1rem;
+            transition: transform 0.2s;
+        }
+        .btn-retry:hover { transform: scale(1.05); }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="quiz-ui">
+        <div class="header-game">STRAVINSKY MASTER</div>
+        <div class="status-info">
+            <span id="q-count">Pregunta: 1/10</span>
+            <span id="score">Puntos: 0</span>
+        </div>
+        <div id="question" class="question-text">Cargando...</div>
+        <div id="options-container" class="options-grid"></div>
+        <div class="lifelines">
+            <button class="lifeline-btn" id="btn-50" onclick="use5050()">50:50</button>
+            <button class="lifeline-btn" id="btn-hint" onclick="useHint()">Pista</button>
+        </div>
+    </div>
+
+    <div id="final-screen">
+        <div style="font-size: 5rem;" id="final-emoji"></div>
+        <h2 id="final-title" style="color: var(--gold); font-size: 2.5rem; margin: 10px 0;"></h2>
+        <p id="final-msg" style="font-size: 1.2rem;"></p>
+        <button class="btn-retry" onclick="resetGame()">REINTENTAR DESAFÍO</button>
+    </div>
+</div>
+
+<script>
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playSound(f, d) {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.type = 'sine'; o.frequency.setValueAtTime(f, audioCtx.currentTime);
+        g.gain.setValueAtTime(0, audioCtx.currentTime);
+        g.gain.linearRampToValueAtTime(0.1, audioCtx.currentTime + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + d);
+        o.connect(g); g.connect(audioCtx.destination);
+        o.start(); o.stop(audioCtx.currentTime + d);
+    }
+
+    const bank = [
+        { q: "¿En qué país nació Ígor Stravinski?", a: ["Rusia", "Francia", "Italia", "USA"], c: "Rusia", p: "Patria de los zares." },
+        { q: "¿Qué ballet causó un motín en 1913?", a: ["La Consagración de la Primavera", "Petrushka", "Pulcinella", "El Pájaro de Fuego"], c: "La Consagración de la Primavera", p: "Ritual de primavera." },
+        { q: "¿Quién fue su maestro principal?", a: ["Rimsky-Korsakov", "Tchaikovsky", "Debussy", "Wagner"], c: "Rimsky-Korsakov", p: "Maestro de orquestación." },
+        { q: "¿Dónde vivió gran parte de su exilio en USA?", a: ["Los Ángeles", "Nueva York", "Chicago", "Boston"], c: "Los Ángeles", p: "Cerca de Hollywood." },
+        { q: "¿Qué estilo define su periodo de orden?", a: ["Neoclasicismo", "Barroco", "Minimalismo", "Jazz"], c: "Neoclasicismo", p: "Regreso a lo clásico." },
+        { q: "¿Qué instrumento tocaba para componer?", a: ["Piano", "Flauta", "Violín", "Arpa"], c: "Piano", p: "88 teclas." },
+        { q: "¿En qué ciudad italiana está enterrado?", a: ["Venecia", "Roma", "Milán", "Nápoles"], c: "Venecia", p: "Ciudad de los canales." },
+        { q: "¿Técnica que adoptó en su vejez?", a: ["Serialismo", "Pop", "Rock", "Grunge"], c: "Serialismo", p: "Dodecafonismo." },
+        { q: "¿Por qué fue arrestado en Boston?", a: ["Arreglo del Himno", "Espionaje", "Robo", "Pelea"], c: "Arreglo del Himno", p: "Armonía prohibida." },
+        { q: "¿Empresario de los Ballets Rusos?", a: ["Diáguilev", "Picasso", "Nijinsky", "Cocteau"], c: "Diáguilev", p: "Serguéi." }
+    ];
+
+    let gameQuestions = [];
+    let currentIdx = 0;
+    let score = 0;
+
+    function initGame() {
+        // Mezclar preguntas
+        gameQuestions = [...bank].sort(() => Math.random() - 0.5);
+        currentIdx = 0;
+        score = 0;
+        
+        // Resetear visibilidad
+        document.getElementById("quiz-ui").style.display = "block";
+        document.getElementById("final-screen").style.display = "none";
+        
+        // Resetear botones de ayuda
+        document.getElementById("btn-50").disabled = false;
+        document.getElementById("btn-hint").disabled = false;
+        
+        loadQuestion();
+    }
+
+    function loadQuestion() {
+        const q = gameQuestions[currentIdx];
+        document.getElementById("q-count").innerText = `Pregunta: ${currentIdx + 1}/10`;
+        document.getElementById("score").innerText = `Puntos: ${score}`;
+        document.getElementById("question").innerText = q.q;
+        
+        const container = document.getElementById("options-container");
+        container.innerHTML = "";
+
+        // DIFICULTAD: Mezclar las opciones
+        const shuffledOptions = [...q.a].sort(() => Math.random() - 0.5);
+
+        shuffledOptions.forEach(txt => {
+            const btn = document.createElement("div");
+            btn.className = "option";
+            btn.innerText = txt;
+            btn.onclick = () => checkAnswer(txt, btn);
+            container.appendChild(btn);
+        });
+    }
+
+    function checkAnswer(selected, btn) {
+        const correct = gameQuestions[currentIdx].c;
+        const all = document.querySelectorAll(".option");
+        all.forEach(b => b.style.pointerEvents = "none");
+
+        if (selected === correct) {
+            btn.classList.add("correct");
+            playSound(550, 0.4);
+            score++;
+        } else {
+            btn.classList.add("wrong");
+            playSound(200, 0.6);
+            all.forEach(b => { if(b.innerText === correct) b.classList.add("correct"); });
+        }
+
+        setTimeout(() => {
+            currentIdx++;
+            if (currentIdx < 10 && currentIdx < gameQuestions.length) {
+                loadQuestion();
+            } else {
+                showFinal();
+            }
+        }, 1200);
+    }
+
+    function use5050() {
+        const correct = gameQuestions[currentIdx].c;
+        let count = 0;
+        document.querySelectorAll(".option").forEach(b => {
+            if (b.innerText !== correct && count < 2) {
+                b.classList.add("hidden-opt");
+                count++;
+            }
+        });
+        document.getElementById("btn-50").disabled = true;
+    }
+
+    function useHint() {
+        alert("📞 PISTA: " + gameQuestions[currentIdx].p);
+        document.getElementById("btn-hint").disabled = true;
+    }
+
+    function showFinal() {
+        document.getElementById("quiz-ui").style.display = "none";
+        const final = document.getElementById("final-screen");
+        final.style.display = "block";
+        
+        const title = document.getElementById("final-title");
+        const msg = document.getElementById("final-msg");
+        const emoji = document.getElementById("final-emoji");
+
+        if (score >= 8) {
+            emoji.innerText = "🏆";
+            title.innerText = "¡MAGNÍFICO!";
+            msg.innerText = `Has obtenido ${score} puntos. Eres un verdadero maestro.`;
+            confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+        } else {
+            emoji.innerText = "🎻";
+            title.innerText = "FALTA ENSAYO";
+            msg.innerText = `Solo ${score} puntos. Stravinsky exige perfección.`;
+        }
+    }
+
+    // ARREGLO DEFINITIVO PARA EL BOTÓN
+    function resetGame() {
+        console.log("Reiniciando juego..."); // Para verificar en consola
+        initGame();
+    }
+
+    window.onload = initGame;
+</script>
+
+</body>
+</html>
